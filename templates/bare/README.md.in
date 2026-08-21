@@ -1,0 +1,29 @@
+# {{project.name}}
+
+```
+xlings install qemu-arm -y      # once, per machine
+mcpp run --target aarch64-none-elf
+```
+
+⚠️ **The first line is not optional, and leaving it out fails in a way that
+names itself.** `mcpp.toml` declares the emulator through the board package, and
+a declaration is not an install trigger. Without it the build SUCCEEDS and says:
+
+```
+warning: aarch64-virt-rt: qemu-arm is not installed, so `mcpp run` has no runner.
+```
+
+## What the board supplies
+
+The memory map (`virt.ld`), the entry point that parks the secondary cores and
+zeroes `.bss`, a PL011 console, and the emulator command line. This project
+names none of them — no load address, no UART address, no `-nostdlib`.
+
+## The zero-libc tier
+
+There is no C library. `board::print_uint` exists because a board with no libc
+still has to be able to show a number, and it is the smallest thing that is not
+a formatter.
+
+A project that wants `printf` declares `xim:picolibc-aarch64` — which is this
+project's decision to make, not the board's.

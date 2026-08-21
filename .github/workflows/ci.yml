@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# ⭐ THE GATE IS THAT THE BOARD BOOTS, NOT THAT IT COMPILES.
+#
+# A board package that builds and does not boot is the failure this ecosystem
+# has already shipped once: a template whose generated project compiled for
+# three machines and ran on none of them passed a check that stopped at
+# `mcpp build`. Every assertion below runs the image.
+jobs:
+  board:
+    name: the board boots
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      MCPP_VERSION: 2026.8.21.2
+      XLINGS_VERSION: v2026.8.17.2
+      XLINGS_NON_INTERACTIVE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xlings
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/openxlings/xlings/main/tools/other/quick_install.sh \
+            | bash -s "$XLINGS_VERSION"
+          echo "$HOME/.xlings/subos/current/bin" >> "$GITHUB_PATH"
+
+      - name: Install mcpp
+        run: |
+          # A loop, because one `xlings update` can return a stale index without
+          # saying so: the index is published as an artifact behind a pointer,
+          # and that pointer propagates asynchronously after a merge.
+          for attempt in 1 2 3 4 5 6; do
+            xlings update > /dev/null 2>&1 || true
+            if xlings install "mcpp@$MCPP_VERSION" -y -g; then break; fi
+            if [ "$attempt" = 6 ]; then
+              echo "::error::mcpp@$MCPP_VERSION never appeared in the index"
+              exit 1
+            fi
+            sleep 60
+          done
+          mcpp --version
+          mcpp self config --mirror GLOBAL
+
+      # ⭐ BEFORE THE EMULATOR, AND THAT ORDER IS THE ASSERTION.
+      #
+      # `[xlings] deps` is a DECLARATION, not an install trigger. On a clean
+      # machine `xpkg_dir` answers empty, this board configures no runner, and
+      # before mcpp 2026.8.21.2 that was SILENT — a build program's output is
+      # printed only when it exits non-zero.
+      #
+      # This is the only step that can observe the advisory: every later one has
+      # the emulator.
+      - name: A clean machine is told what is missing
+        working-directory: examples/blinky
+        run: |
+          set -euo pipefail
+          COLD=$(mktemp -d)
+          MCPP_HOME="$COLD" mcpp build --target aarch64-none-elf 2>&1 | tee cold.log || true
+          MCPP_HOME="$COLD" mcpp build --target aarch64-none-elf 2>&1 | tee cold.log
+          grep -q "qemu-arm is not installed" cold.log \
+            || { cat cold.log; echo "the board said nothing about the missing emulator"; exit 1; }
+          grep -q "xlings install qemu-arm" cold.log \
+            || { cat cold.log; echo "the advisory does not name the command that fixes it"; exit 1; }
+          # An advisory is not an error.
+          grep -q "Finished" cold.log \
+            || { cat cold.log; echo "the build did not finish"; exit 1; }
+          rm -rf "$COLD" target
+
+      - name: Install the emulator
+        run: |
+          # BOTH homes: the shim on PATH dispatches against whichever home owns
+          # it, while `mcpp run` starts the runner through mcpp's own.
+          xlings install xim:qemu-arm -y
+          XLINGS_HOME="$HOME/.mcpp/registry" xlings install xim:qemu-arm -y
+
+      # ⚠️ THE `bss zeroed` LINE IS THE ONE THAT CATCHES A HALF-CORRECT BOOT.
+      #
+      # An entry point that set the stack and jumped to main would print the
+      # greeting and would leave `.bss` holding whatever the machine had there.
+      # That failure is data-dependent: it would not reproduce on the machine
+      # where the code was written.
+      - name: The example boots, and .bss was zeroed
+        working-directory: examples/blinky
+        run: |
+          set -euo pipefail
+          mcpp build --target aarch64-none-elf > /dev/null 2>&1 || true
+          mcpp run --target aarch64-none-elf 2>&1 | tee run.log
+          grep -q "hello from qemu aarch64 virt" run.log \
+            || { cat run.log; echo "the board did not reach main"; exit 1; }
+          grep -q "bss zeroed" run.log \
+            || { cat run.log; echo ".bss was not zeroed by the entry code"; exit 1; }
+          grep -q "counter 42" run.log \
+            || { cat run.log; echo "a write to .bss did not survive"; exit 1; }
+          grep -q "blinky ok" run.log \
+            || { cat run.log; echo "the example did not reach its end"; exit 1; }
+
+      # ⭐ THE CLAIM THIS PACKAGE WAS WRITTEN TO TEST.
+      #
+      # Both boards' build programs must emit the SAME SET of directives, with
+      # only the values differing. If this board needs one `riscv-virt-rt`
+      # cannot express, the board-package interface is incomplete — and that
+      # finding is worth more than this package is.
+      #
+      # Read from the engine's own cache record rather than from the source: the
+      # `d <tag>` lines ARE what the program emitted.
+      - name: The board-package interface is complete
+        working-directory: examples/blinky
+        run: |
+          set -euo pipefail
+          CACHE=$(find target -name build.mcpp.cache | head -1)
+          test -n "$CACHE" || { echo "no build.mcpp.cache — the program did not run"; exit 1; }
+          TAGS=$(grep '^d ' "$CACHE" | awk '{print $2}' | sort -u | tr '\n' ' ')
+          echo "emitted: $TAGS"
+          # ⚠️ Asserted against a literal rather than against riscv-virt-rt's
+          # tree, which this repository does not have. The literal is what that
+          # board was MEASURED to emit (2026-08-21); a change on either side has
+          # to come here and say so.
+          test "$TAGS" = "ldflag runner " \
+            || { echo "this board emits '$TAGS', while riscv-virt-rt emits 'ldflag runner '."; \
+                 echo "Either the board-package interface is incomplete, or riscv-virt-rt changed."; exit 1; }
+
+      # The template is rendered by hand: `mcpp new --template` resolves the
+      # package from the INDEX, so asking it for a template this commit ADDS
+      # would resolve the previously published version.
+      - name: The template's project boots
+        run: |
+          set -euo pipefail
+          T=templates/bare
+          V=$(grep -m1 '^version' mcpp.toml | cut -d'"' -f2)
+          D=$(mktemp -d); mkdir -p "$D/src"
+          for f in mcpp.toml README.md; do
+            sed -e "s/{{project\.name}}/k/g" -e "s/{{self\.version}}/$V/g" "$T/$f.in" > "$D/$f"
+          done
+          sed -e "s/{{project\.name}}/k/g" "$T/src/main.cpp.in" > "$D/src/main.cpp"
+          # The rendered manifest names this version, which is not published yet.
+          sed -i.bak "s|aarch64-virt-rt = \"$V\"|aarch64-virt-rt = { path = \"$PWD\" }|" "$D/mcpp.toml"
+          rm -f "$D/mcpp.toml.bak"
+          grep -q "path = " "$D/mcpp.toml" || { cat "$D/mcpp.toml"; exit 1; }
+          ( cd "$D" && mcpp build --target aarch64-none-elf > /dev/null 2>&1 ) || true
+          ( cd "$D" && mcpp run --target aarch64-none-elf 2>&1 | tee run.log )
+          grep -q "bss zeroed" "$D/run.log" \
+            || { cat "$D/run.log"; echo "the generated project does not boot"; exit 1; }

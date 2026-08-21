@@ -1,0 +1,70 @@
+import mcpp;
+import std;
+
+// The board facts, emitted as directives.
+//
+// ⭐ THE SET OF DIRECTIVES THIS EMITS IS THE TEST, NOT THE VALUES.
+//
+// `riscv-virt-rt` emits three: `link_script`, `runner`, and `link_lib` for the
+// C library it is written against. This board is on the zero-libc tier, so it
+// emits two — `link_script` and `runner` — and the third is ABSENT rather than
+// different.
+//
+// That is the answer to the question this package was written to ask: are
+// "board package" and "C library provider" separable roles? They are. Dropping
+// the C library removed a directive and required no new one. Had this board
+// needed something `riscv-virt-rt` cannot express, the board-package interface
+// would have been incomplete, and that would have been the finding.
+//
+// ⚠️ ONE THING IS GENUINELY DIFFERENT, AND IT IS CONTENT RATHER THAN INTERFACE.
+// With no C library there is no crt0 to select, so this package SHIPS an entry
+// point (`src/boot.S`) where the other one picks between picolibc's. That
+// changes what is in the package; it changes no directive.
+int main() {
+    const std::string arch = mcpp::target_arch() ? mcpp::target_arch() : "";
+    if (arch != "aarch64") {
+        std::cerr << "aarch64-virt-rt is a board package for QEMU's aarch64 "
+                     "`virt` machine; it has nothing to say about '"
+                  << arch << "'. Build with --target aarch64-none-elf.\n";
+        return 1;
+    }
+
+    // Where this machine starts and where its RAM is. A relative path resolves
+    // against THIS package's root, and the directive reaches the CONSUMER's
+    // link — which is the whole reason `link-script` is LinkGlobal.
+    mcpp::link_script("virt.ld");
+
+    // ⚠️ Absolute path: a bare `qemu-system-aarch64` resolves through PATH to a
+    // shim that dispatches against whichever home owns it, which is not
+    // necessarily the home this build uses.
+    if (const char* qemu = mcpp::xpkg_dir("xim", "qemu-arm"); qemu && *qemu) {
+        mcpp::runner(std::format("{}/bin/qemu-system-aarch64", qemu).c_str());
+        // `virt`'s default CPU does not implement everything an image may use;
+        // naming one makes the argument list say which machine needed it.
+        for (auto a : {"-machine", "virt", "-cpu", "cortex-a53",
+                       "-nographic", "-no-reboot", "-kernel"})
+            mcpp::runner(a);
+    } else {
+        // ⚠️ A CONSUMER NORMALLY NEVER REACHES THIS BRANCH, WHICH IS WHY IT
+        // NEEDS TO SPEAK WHEN IT DOES.
+        //
+        // The emulator is declared in this package's index descriptor under the
+        // platform `deps`, and those ARE installed with the package. Someone
+        // building this repository from a checkout has only the manifest's
+        // `[xlings] deps`, which is a declaration and not an install trigger:
+        // `xpkg_dir` answers empty, no runner is configured, and `mcpp run`
+        // then reports a missing runner with advice about writing a `runner`
+        // key — true in general, and not the cause here.
+        //
+        // Before mcpp 2026.8.21.2 this could not be said at all: a build
+        // program's output is printed only when it exits non-zero.
+        mcpp::warning(
+            "qemu-arm is not installed, so `mcpp run` has no runner. "
+            "`mcpp build` is unaffected. Install it once:  "
+            "xlings install qemu-arm -y");
+    }
+
+    mcpp::rerun_if_changed("virt.ld");
+    mcpp::rerun_if_env_changed("MCPP_TARGET_ARCH");
+    return 0;
+}

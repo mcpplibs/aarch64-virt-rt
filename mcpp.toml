@@ -1,0 +1,42 @@
+# Board support for QEMU's aarch64 `virt` machine.
+#
+# ⭐ THE SECOND BOARD, AND IT DELIBERATELY VARIES TWO THINGS AT ONCE.
+#
+# `riscv-virt-rt` holds three facts fixed: the ISA (riscv64), the presence of a
+# C library (picolibc), and the emulator board (qemu `virt`). A second board on
+# the SAME ISA would vary only the third, and the evidence it produced would be
+# the weakest of the three available — the same trap `openarch` fell into with
+# two RISC machines, where an interface that fits both may fit because it is
+# right or because they are alike.
+#
+# So this varies the ISA and the C library:
+#
+#   * a DIFFERENT ISA, so the boundary between "board package" and "machine
+#     mechanism" is tested rather than assumed;
+#   * the ZERO-LIBC tier, which asks a question nobody has asked yet — are
+#     "board package" and "C library provider" two separable roles? riscv-virt-rt
+#     used to locate picolibc and hand out its include and library paths, and
+#     stopped; this board never had them, so if the roles are genuinely separate
+#     it should need no directive the other one does not also emit.
+#
+# ⚠️ THAT LAST SENTENCE IS THE TEST, AND IT MAY FAIL. If this board needs a
+# directive `riscv-virt-rt` does not, the board-package interface is incomplete
+# — and finding that out is worth more than this package is.
+[package]
+namespace   = "mcpplibs"
+name        = "aarch64-virt-rt"
+version     = "0.1.0"
+description = "Board support for QEMU's aarch64 `virt` machine — memory layout, startup, console and runner, on the zero-libc tier"
+license     = "Apache-2.0"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/aarch64-virt-rt"
+
+# ⚠️ NO C LIBRARY, AND NO FEATURE TO ADD ONE.
+#
+# `aarch64-none-elf` carries an empty C-library column in mcpp's target table,
+# which means a project targeting it begins on the zero-libc tier without asking.
+# This board stays there. `xim:picolibc-aarch64` exists and a project that wants
+# it declares it — that is a project's choice, and taking it here would make the
+# board the thing that decided.
+[xlings]
+deps = ["xim:qemu-arm@9.2.4-1"]

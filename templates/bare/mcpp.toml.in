@@ -1,0 +1,8 @@
+[package]
+name    = "{{project.name}}"
+version = "0.1.0"
+
+# The board owns the memory map, the entry point, the console and the runner.
+# This project names none of them.
+[dependencies]
+aarch64-virt-rt = "{{self.version}}"

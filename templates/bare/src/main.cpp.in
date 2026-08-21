@@ -1,0 +1,19 @@
+import mcpplibs.aarch64_virt_rt;
+
+// ⚠️ The zero-libc tier: there is no C library here, and no `#include`. What
+// the board can offer over a UART and a linker script is what `board::` has.
+static unsigned long long counter;
+
+extern "C" int main() {
+    board::println("hello from {{project.name}}");
+
+    // .bss is zeroed by the board's entry code and by nothing else.
+    board::print("bss ");
+    board::println(counter == 0 ? "zeroed" : "DIRTY");
+
+    counter = 42;
+    board::print("counter ");
+    board::print_uint(counter);
+    board::putc('\n');
+    return 0;
+}

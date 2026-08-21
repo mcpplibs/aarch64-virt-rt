@@ -1,0 +1,6 @@
+[package]
+name    = "blinky"
+version = "0.1.0"
+
+[dependencies]
+aarch64-virt-rt = { path = "../.." }
