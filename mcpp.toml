@@ -25,7 +25,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "aarch64-virt-rt"
-version     = "0.1.0"
+version     = "0.1.1"
 description = "Board support for QEMU's aarch64 `virt` machine — memory layout, startup, console and runner, on the zero-libc tier"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]
@@ -38,5 +38,18 @@ repo        = "https://github.com/mcpplibs/aarch64-virt-rt"
 # This board stays there. `xim:picolibc-aarch64` exists and a project that wants
 # it declares it — that is a project's choice, and taking it here would make the
 # board the thing that decided.
+#
+# ⚠️ BOTH SPELLINGS, AND THE PAIR IS THE MIGRATION.
+#
+# `[xlings.workspace]` is the one table since mcpp 2026.9.3.1; `deps` is the
+# older spelling of the same statement. An engine that knows the table
+# collapses the two, because they agree; an engine that predates it reads
+# `deps` and behaves as it does today. Dropping the older line now would be a
+# silent regression there — such an engine parses the table and provisions
+# nothing from it, so this board's build.mcpp would find no emulator and
+# configure no runner. The line goes once no supported engine needs it.
 [xlings]
 deps = ["xim:qemu-arm@9.2.4-1"]
+
+[xlings.workspace]
+qemu-arm = "xim:9.2.4-1"
