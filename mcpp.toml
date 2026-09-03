@@ -41,10 +41,12 @@ repo        = "https://github.com/mcpplibs/aarch64-virt-rt"
 #
 # ⚠️ BOTH SPELLINGS, AND THE PAIR IS THE MIGRATION.
 #
-# `[xlings.workspace]` is the one table since mcpp 2026.9.3.1; `deps` is the
-# older spelling of the same statement. An engine that knows the table
-# collapses the two, because they agree; an engine that predates it reads
-# `deps` and behaves as it does today. Dropping the older line now would be a
+# `[xlings.workspace]` is the one table since mcpp 2026.9.3.1, and a namespaced
+# package is written `"<namespace>:<name>" = "<version>"` — an entry names a
+# package and then says which version of it, which is the form every official
+# package uses. `deps` is the older spelling of the same statement. An engine
+# that knows the table collapses the two, because they agree; an engine that
+# predates it reads `deps` and behaves as it does today. Dropping the older line now would be a
 # silent regression there — such an engine parses the table and provisions
 # nothing from it, so this board's build.mcpp would find no emulator and
 # configure no runner. The line goes once no supported engine needs it.
@@ -52,4 +54,4 @@ repo        = "https://github.com/mcpplibs/aarch64-virt-rt"
 deps = ["xim:qemu-arm@9.2.4-1"]
 
 [xlings.workspace]
-qemu-arm = "xim:9.2.4-1"
+"xim:qemu-arm" = "9.2.4-1"
