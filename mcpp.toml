@@ -25,7 +25,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "aarch64-virt-rt"
-version     = "0.1.1"
+version     = "0.2.0"
 description = "Board support for QEMU's aarch64 `virt` machine — memory layout, startup, console and runner, on the zero-libc tier"
 license     = "Apache-2.0"
 authors     = ["mcpplibs"]
