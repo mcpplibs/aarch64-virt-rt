@@ -18,7 +18,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      MCPP_VERSION: 2026.9.3.2
+      # ⚠️⚠️ 2026.9.4.2, AND THE REASON IS THIS PACKAGE'S OWN CHANGE.
+      #
+      # The runner names its program by bare name, and mcpp searches the payload
+      # a manifest declared before it searches PATH. #544 shipped that search
+      # over the ROOT project's declarations only — so the bare name resolved
+      # when the CONSUMER declared the emulator and failed when THIS package
+      # did, which is backwards and is the duplication a board package exists to
+      # remove. 2026.9.4.2 extends both the search and the provisioning to every
+      # package in the graph.
+      #
+      # ⚠️ CI pins what the README tells people to use, and this package must
+      # not be PUBLISHED before that engine is: publishing first would leave the
+      # board broken on every engine that already has it.
+      MCPP_VERSION: 2026.9.4.2
       XLINGS_VERSION: v2026.8.17.2
       XLINGS_NON_INTERACTIVE: '1'
     steps:
@@ -47,29 +60,59 @@ jobs:
           mcpp --version
           mcpp self config --mirror GLOBAL
 
-      # ⭐ BEFORE THE EMULATOR, AND THAT ORDER IS THE ASSERTION.
+      # ⭐⭐ THE ADVISORY IS GONE, AND ITS ABSENCE IS WHAT THIS STEP NOW
+      # ASSERTS.
       #
-      # `[xlings] deps` is a DECLARATION, not an install trigger. On a clean
-      # machine `xpkg_dir` answers empty, this board configures no runner, and
-      # before mcpp 2026.8.21.2 that was SILENT — a build program's output is
-      # printed only when it exits non-zero.
+      # Until 0.2.0 this board computed the emulator's path from
+      # `mcpp::xpkg_dir` and printed a `mcpp::warning` when it answered empty —
+      # which it does for anyone building from a checkout, because a declaration
+      # is not an install. The board configured no runner, and the advisory
+      # existed to explain why.
       #
-      # This is the only step that can observe the advisory: every later one has
-      # the emulator.
-      - name: A clean machine is told what is missing
+      # Naming the program deleted that failure mode rather than moving it. The
+      # engine searches the payloads the graph declared and then PATH, and when
+      # the program is nowhere it reports which directories it looked in — a
+      # better message than the board could write, from the only place that
+      # knows the answer.
+      #
+      # ⚠️ SO THE ASSERTION IS INVERTED: on a clean machine the build must still
+      # FINISH, and `mcpp run` must fail by NAMING WHERE IT LOOKED rather than
+      # by advising a `runner` key. A board that silently configured nothing
+      # would pass the first half and fail the second.
+      - name: A clean machine still builds, and says where it looked
         working-directory: examples/blinky
         run: |
           set -euo pipefail
           COLD=$(mktemp -d)
-          MCPP_HOME="$COLD" mcpp build --target aarch64-none-elf 2>&1 | tee cold.log || true
+          MCPP_HOME="$COLD" mcpp build --target aarch64-none-elf > cold.log 2>&1 || true
           MCPP_HOME="$COLD" mcpp build --target aarch64-none-elf 2>&1 | tee cold.log
-          grep -q "qemu-arm is not installed" cold.log \
-            || { cat cold.log; echo "the board said nothing about the missing emulator"; exit 1; }
-          grep -q "xlings install qemu-arm" cold.log \
-            || { cat cold.log; echo "the advisory does not name the command that fixes it"; exit 1; }
-          # An advisory is not an error.
           grep -q "Finished" cold.log \
-            || { cat cold.log; echo "the build did not finish"; exit 1; }
+            || { cat cold.log; echo "::error::the build did not finish without an emulator"; exit 1; }
+          if grep -q "is not installed" cold.log; then
+            cat cold.log
+            echo "::error::the board still prints the advisory the bare name removed"
+            exit 1
+          fi
+          # ⚠️ THE RUN'S OUTCOME IS NOT ASSERTED, AND PRETENDING IT COULD BE
+          # WOULD MAKE THIS STEP LIE. `MCPP_HOME` isolates mcpp's registry and
+          # not PATH, so whether an emulator is reachable here depends on the
+          # runner image — measured on a developer machine, where it was and the
+          # run succeeded. What IS guaranteed is the shape of the failure when
+          # there is one, so that is what is checked, conditionally.
+          set +e
+          MCPP_HOME="$COLD" mcpp run --target aarch64-none-elf > run.log 2>&1
+          rc=$?
+          set -e
+          cat run.log
+          if [ "$rc" != "0" ]; then
+            grep -qE "qemu-system-aarch64" run.log \
+              || { echo "::error::the failure does not name the program it looked for"; exit 1; }
+            grep -qiE "searched|looked" run.log \
+              || { echo "::error::the failure does not say where it looked"; exit 1; }
+            echo "  ok  the missing runner named the program and the directories"
+          else
+            echo "  note: an emulator was reachable through PATH; the failure shape is unchecked here"
+          fi
           rm -rf "$COLD" target
 
       - name: Install the emulator

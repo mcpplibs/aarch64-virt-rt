@@ -34,35 +34,35 @@ int main() {
     // link — which is the whole reason `link-script` is LinkGlobal.
     mcpp::link_script("virt.ld");
 
-    // ⚠️ Absolute path: a bare `qemu-system-aarch64` resolves through PATH to a
-    // shim that dispatches against whichever home owns it, which is not
-    // necessarily the home this build uses.
-    if (const char* qemu = mcpp::xpkg_dir("xim", "qemu-arm"); qemu && *qemu) {
-        mcpp::runner(std::format("{}/bin/qemu-system-aarch64", qemu).c_str());
-        // `virt`'s default CPU does not implement everything an image may use;
-        // naming one makes the argument list say which machine needed it.
-        for (auto a : {"-machine", "virt", "-cpu", "cortex-a53",
-                       "-nographic", "-no-reboot", "-kernel"})
-            mcpp::runner(a);
-    } else {
-        // ⚠️ A CONSUMER NORMALLY NEVER REACHES THIS BRANCH, WHICH IS WHY IT
-        // NEEDS TO SPEAK WHEN IT DOES.
-        //
-        // The emulator is declared in this package's index descriptor under the
-        // platform `deps`, and those ARE installed with the package. Someone
-        // building this repository from a checkout has only the manifest's
-        // `[xlings] deps`, which is a declaration and not an install trigger:
-        // `xpkg_dir` answers empty, no runner is configured, and `mcpp run`
-        // then reports a missing runner with advice about writing a `runner`
-        // key — true in general, and not the cause here.
-        //
-        // Before mcpp 2026.8.21.2 this could not be said at all: a build
-        // program's output is printed only when it exits non-zero.
-        mcpp::warning(
-            "qemu-arm is not installed, so `mcpp run` has no runner. "
-            "`mcpp build` is unaffected. Install it once:  "
-            "xlings install qemu-arm -y");
-    }
+    // ⭐⭐ THE BARE NAME, AND THE ENGINE FINDS IT.
+    //
+    // This block used to compute an absolute path out of `mcpp::xpkg_dir`, on
+    // the grounds — correct when it was written — that a bare name resolves
+    // through PATH to a shim dispatching against whichever home owns it.
+    //
+    // `mcpp.build.runner_lookup` (mcpp #544) removed that: it searches the bin/
+    // of a payload declared under `[xlings.workspace]` FIRST, and only then
+    // PATH, and reports which directories it searched when the program is
+    // nowhere. So naming the program is now both shorter and stricter.
+    //
+    // ⚠️ AND SINCE mcpp 2026.9.4.2 THAT SEARCH SPANS THE WHOLE GRAPH, which is
+    // what makes this work for a CONSUMER rather than only in this checkout.
+    // Before it, a bare name resolved only against the ROOT project's
+    // declarations — so a consumer of this board had to declare the emulator
+    // again, which is the duplication a board package exists to remove. That is
+    // why this package's floor is 2026.9.4.2 and not #544's release.
+    //
+    // ⚠️ AND IT DELETES A FAILURE MODE RATHER THAN MOVING IT. `xpkg_dir`
+    // answered empty for anyone building from a checkout, so the old code
+    // configured no runner at all and needed an advisory to explain why. There
+    // is nothing to explain here: if the emulator is absent, the lookup says so
+    // and names where it looked.
+    mcpp::runner("qemu-system-aarch64");
+    // `virt`'s default CPU does not implement everything an image may use;
+    // naming one makes the argument list say which machine needed it.
+    for (auto a : {"-machine", "virt", "-cpu", "cortex-a53",
+                   "-nographic", "-no-reboot", "-kernel"})
+        mcpp::runner(a);
 
     mcpp::rerun_if_changed("virt.ld");
     mcpp::rerun_if_env_changed("MCPP_TARGET_ARCH");
